@@ -1,0 +1,36 @@
+3DStructureApp/
+│
+├── backend/                 # Python Backend (API + Simulation)
+│   ├── app/
+│   │   ├── main.py          # FastAPI or Flask entrypoint
+│   │   ├── routes/          # API endpoints (geometry, animation, heatmap)
+│   │   ├── services/        # Business logic (geometry gen, physics)
+│   │   ├── models/          # Pydantic or data classes for data schemas
+│   │   └── utils/           # Helpers: mesh IO, colormaps, math utils
+│   │
+│   ├── tests/               # Unit & integration tests
+│   └── requirements.txt     # Python dependencies
+│
+├── frontend/                # Three.js Frontend (Visualization & UI)
+│   ├── public/              # Static files (HTML, favicon, etc.)
+│   ├── src/
+│   │   ├── index.html       # Entry HTML
+│   │   ├── main.js          # App entrypoint (Three.js init)
+│   │   ├── components/      # UI components (e.g., sliders, buttons)
+│   │   ├── scenes/          # Scene setup, camera, lights
+│   │   ├── objects/         # Reusable 3D objects (points, lines, surfaces)
+│   │   ├── animation/       # Animation handlers
+│   │   ├── shaders/         # Custom shaders (e.g., for heat maps)
+│   │   └── api/             # API call handlers (REST/WebSocket)
+│   │
+│   └── package.json         # JS dependencies
+│
+├── shared/                  # Shared definitions and files
+│   ├── schema/              # JSON schema or protocol for geometry/animation
+│   └── assets/              # glTF models, textures, icons
+│
+├── docs/                    # Documentation, diagrams, architecture notes
+│
+├── scripts/                 # Utility scripts (e.g., data conversion, debugging)
+│
+└── README.md
