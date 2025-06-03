@@ -107,7 +107,7 @@ class MainWindow(QMainWindow):
         try:
             mesh = pv.read(file_path)
             self.plotter.clear()  # Clear current scene
-    
+
             # Re-add mesh to the scene
             self.plotter.add_mesh(mesh, show_edges=True)
             self.plotter.reset_camera()
