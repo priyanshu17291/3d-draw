@@ -24,7 +24,7 @@ class IconCard(QWidget):
         layout.setSpacing(0)
 
         self.icon = GetIcon(self.icon_path,self.size_)
-        self.icon.setFixedWidth(self.size_+0.2*self.size_)
+        self.icon.setFixedWidth(int(self.size_+0.2*self.size_))
 
 
         self.text = QWidget()

@@ -32,14 +32,14 @@ import Styles.colors as cl
 #System Imports
 import os
 import sys
-######MAC ONLY######
-import objc
-from AppKit import NSApp, NSAppearance
-####################
+import platform
+# Only import Mac-specific modules if on macOS
+if platform.system() == 'Darwin':
+    import objc
+    from AppKit import NSApp, NSAppearance
+    os.environ['QT_MAC_WANTS_LAYER'] = '1'
 
-###MAC ONLY###
-os.environ['QT_MAC_WANTS_LAYER'] = '1'
-##############
+
 
 
 class SignalAnalysisMenu(QWidget):
@@ -58,8 +58,8 @@ class SignalAnalysisMenu(QWidget):
         self.tabsPanel_layout.setSpacing(15)
         self.tabsPanel_layout.setContentsMargins(8,8,8,0)
 
-        self.homeLabel = self.getTabLabel("    Home    ",True)
-        self.analysisLabel = self.getTabLabel("    Analysis    ")
+        self.homeLabel = self.getTabLabel("    Home    ")
+        self.analysisLabel = self.getTabLabel("    Analysis    ", active=True)
         self.modelLabel = self.getTabLabel("    Model    ")
         self.viewLabel = self.getTabLabel("    View   ")
         self.helpLabel = self.getTabLabel("    Help    ")
@@ -195,11 +195,6 @@ class SignalAnalysisMenu(QWidget):
         self.homeRibbon_layout.addWidget(self.saveFileBtn)
         self.homeRibbon_layout.addWidget(self.closeFileBtn)
         self.homeRibbon_layout.addStretch(1)
-        
-        
-        
-        
-
 
     def getTabLabel(self,label_:str,active=False):
         label = QLabel(label_)
@@ -251,21 +246,19 @@ class SignalAnalysisWindow(QMainWindow):
         self.splitDockWidget(workSpaceDock, statusDock, Qt.Vertical)
 
         QTimer.singleShot(0, lambda: self.resizeDocks(
-            [controlDock, workSpaceDock],
-            [self.width() * 0.3, self.width() * 0.7],
-            Qt.Horizontal
+        [controlDock, workSpaceDock],
+        [int(self.width() * 0.3), int(self.width() * 0.7)],
+        Qt.Horizontal
         ))
 
         QTimer.singleShot(0, lambda: self.resizeDocks(
             [workSpaceDock, statusDock],
-            [self.height() * 0.75, self.height() * 0.25],
+            [int(self.height() * 0.75), int(self.height() * 0.25)],
             Qt.Vertical
         ))
+
 
     def setup_ui(self):
         self.signalAnalysisMenu = SignalAnalysisMenu()
 
         self.setMenuWidget(self.signalAnalysisMenu)
-
-
-

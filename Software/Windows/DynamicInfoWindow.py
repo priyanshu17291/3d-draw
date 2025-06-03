@@ -27,14 +27,14 @@ import Styles.colors as cl
 #System Imports
 import os
 import sys
-######MAC ONLY######
-import objc
-from AppKit import NSApp, NSAppearance
-####################
+import platform
+# Only import Mac-specific modules if on macOS
+if platform.system() == 'Darwin':
+    import objc
+    from AppKit import NSApp, NSAppearance
+    os.environ['QT_MAC_WANTS_LAYER'] = '1'
 
-###MAC ONLY###
-os.environ['QT_MAC_WANTS_LAYER'] = '1'
-##############
+
 
 class DynamicInfoWindow(QMainWindow):
     def __init__(self):
@@ -71,15 +71,16 @@ class DynamicInfoWindow(QMainWindow):
 
         QTimer.singleShot(0, lambda: self.resizeDocks(
             [sensorInfoDock, self.contentDock, alarmsDock],
-            [self.width() * 0.2, self.width() * 0.6, self.width() * 0.2],
+            [int(self.width() * 0.2), int(self.width() * 0.6), int(self.width() * 0.2)],
             Qt.Horizontal
-        ))  
+        ))
 
         QTimer.singleShot(0, lambda: self.resizeDocks(
             [alarmsDock, triggersDock],
-            [self.height() * 0.5, self.height() * 0.5],
+            [int(self.height() * 0.5), int(self.height() * 0.5)],
             Qt.Vertical
-        ))  
+        ))
+
 
 
         self.toolbar.infoBtn.mousePressEvent = self.showSiteInfo

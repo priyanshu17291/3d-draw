@@ -1,46 +1,10 @@
-# import pyvista as pv
-# import numpy as np
-# import time
-
-# # Create the plotting window
-# plotter = pv.Plotter()
-
-# # Generate initial grid
-# x = np.linspace(-5, 5, 50)
-# y = np.linspace(-5, 5, 50)
-# x, y = np.meshgrid(x, y)
-# z = np.sin(x)
-
-# # Create the surface mesh
-# surface = pv.StructuredGrid(x, y, z)
-
-# # Add the mesh to the plotter
-# plotter.add_mesh(surface, color='royalblue', show_edges=False)
-
-# # Start the interactive window (non-blocking)
-# plotter.show(auto_close=False, interactive_update=True)
-
-# # Animation loop
-# phase = 0.0
-# for _ in range(500):  # animate 500 frames
-#     phase += 0.1
-#     new_z = np.sin(x + phase) * np.cos(y + phase)
-#     surface.points[:, 2] = new_z.ravel()
-#     surface.Modified()  # Capital M here
-#     plotter.update()    # redraw the scene
-#     time.sleep(0.05)    # ~20 FPS
-
-# # Leave the window open
-# plotter.close()
-
-#the code below is for testing the joining of points by cylinders
 import sys
 import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, 
-    QWidget, QLabel, QHBoxLayout, QLineEdit, QFileDialog
+    QWidget, QLabel, QHBoxLayout, QLineEdit, QFileDialog, QSplitter
 )
 from PyQt5.QtCore import QTimer
 import trimesh
@@ -75,29 +39,34 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """Create and lay out widgets."""
         self.frame = QWidget()
-        self.layout = QHBoxLayout(self.frame)
         self.setCentralWidget(self.frame)
 
-        # Plotter widget
+        # Use a splitter for a resizable layout
+        self.layout = QHBoxLayout(self.frame)
+        splitter = QSplitter()
+        self.layout.addWidget(splitter)
+
+        # Left-side controls
+        control_panel_widget = QWidget()
+        control_panel = QVBoxLayout(control_panel_widget)
+        splitter.addWidget(control_panel_widget)
+
+        # Plotter widget on the right
         self.plotter = QtInteractor(self.frame)
-        # self.plotter.add_axes()
         self.plotter.enable_terrain_style()
-
         self.plotter.add_axes(interactive=True)
-        self.layout.addWidget(self.plotter.interactor)
-
-        # Right-side controls
-        control_panel = QVBoxLayout()
-        self.layout.addLayout(control_panel)
+        splitter.addWidget(self.plotter.interactor)
 
         # Coordinate input fields
         self.input_fields = [QLineEdit() for _ in range(3)]
         for i, field in enumerate(self.input_fields):
-            field.setPlaceholderText(f"Coord {['X', 'Y', 'Z'][i]}")
+            field.setPlaceholderText(f"Coord {['X','Y','Z'][i]}")
             control_panel.addWidget(field)
 
         # Buttons and their handlers
         buttons = [
+            ("Open File", lambda: QFileDialog.getOpenFileName(self, "Open File", "", "All Files (*)")[0]),
+            ("Save File", lambda: QFileDialog.getSaveFileName(self, "Save File", "", "All Files (*)")[0]),
             ("Add Point", self.add_point),
             ("Connect Selected Points", self.connect_points),
             ("Generate Surface", self.generate_surface),
@@ -105,6 +74,7 @@ class MainWindow(QMainWindow):
             ("Clear All", self.clear_all),
             ("Test Select First Point", self.test_select_first_point),
             ("Export to GLTF", self.export_to_gltf),
+
         ]
         for label, handler in buttons:
             btn = QPushButton(label)
@@ -116,9 +86,9 @@ class MainWindow(QMainWindow):
         start_vibration_btn.clicked.connect(self.start_vibration)
         control_panel.addWidget(start_vibration_btn)
 
-        stop_vibration_btn = QPushButton("Stop Vibration")
-        stop_vibration_btn.clicked.connect(self.stop_vibration)
-        control_panel.addWidget(stop_vibration_btn)
+        # stop_vibration_btn = QPushButton("Stop Vibration")
+        # stop_vibration_btn.clicked.connect(self.stop_vibration)
+        # control_panel.addWidget(stop_vibration_btn)
 
         # Status label
         self.status = QLabel("Status: Ready")
@@ -133,7 +103,30 @@ class MainWindow(QMainWindow):
             left_clicking=True
         )
 
+    def load_structure(self, file_path):
+        try:
+            mesh = pv.read(file_path)
+            self.plotter.clear()  # Clear current scene
+    
+            # Re-add mesh to the scene
+            self.plotter.add_mesh(mesh, show_edges=True)
+            self.plotter.reset_camera()
+            self.plotter.render()
+            self.loaded_mesh = mesh
+            print(f"Loaded: {file_path}")
+        except Exception as e:
+            print(f"Failed to load file: {e}")
 
+    def save_structure(self, file_path):
+        try:
+            # Combine all elements (points, lines, surfaces) into a single PolyData if needed
+            if hasattr(self, 'loaded_mesh'):
+                self.loaded_mesh.save(file_path)
+                print(f"Saved to: {file_path}")
+            else:
+                print("No mesh loaded or generated to save.")
+        except Exception as e:
+            print(f"Failed to save file: {e}")
     def generate_surface(self):
         if len(self.selected_points) < 3:
             self.status.setText("❌ Select at least 3 points to generate a surface.")
@@ -144,6 +137,8 @@ class MainWindow(QMainWindow):
 
         # Create surface mesh using Delaunay triangulation
         surface = pv.PolyData(pts).delaunay_2d()
+        surface = surface.subdivide(nsub=3, subfilter="linear")
+        surface = surface.smooth(n_iter=100, relaxation_factor=0.1)
         self.surfaces.append(surface)
 
         # Add surface to the plotter
@@ -152,7 +147,12 @@ class MainWindow(QMainWindow):
             color='lightgreen',
             opacity=0.6,
             name=f'surface_{len(self.surfaces)}',
-            pickable=False
+            pickable=False,
+            show_edges=True,
+            edge_color='white',
+            lighting=True,
+            specular=1.0,
+            smooth_shading=True
         )
 
         self.status.setText("✅ Surface generated.")
@@ -384,6 +384,13 @@ class MainWindow(QMainWindow):
         if not self.vibration_timer.isActive():
             self.vibration_timer.start(50)  # ~20 FPS
             self.status.setText("🔊 Vibration started")
+            self.sender().setText("Stop Vibration")
+
+        else:
+            self.vibration_timer.stop()
+            self.status.setText("🔇 Vibration stopped")
+            self.sender().setText("start Vibration")
+
 
     def stop_vibration(self):
         if self.vibration_timer.isActive():

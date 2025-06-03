@@ -39,8 +39,12 @@ if __name__ == "__main__":
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
     app = QApplication(sys.argv)
     ######MAC ONLY######
-    NSApp.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua"))
+    if platform.system() == 'Darwin':
+
+        NSApp.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua"))
     ####################
+    if platform.system() == 'win32':
+        os.environ["QT_QPA_PLATFORM"] = "windows:darkmode=1"
 
     app.setStyleSheet(styles.dock_style1)
     # app.setFont(QFont("Helvetica Neue"))
@@ -49,11 +53,11 @@ if __name__ == "__main__":
     # dynamicInfoWindow = DynamicInfoWindow()
     # dynamicInfoWindow.show()
 
-    signalAnalysisWindow = SignalAnalysisWindow()
-    signalAnalysisWindow.show()
+    # signalAnalysisWindow = SignalAnalysisWindow()
+    # signalAnalysisWindow.show()
 
-    # windowManager = WindowManager()
-    # windowManager.showLoginWindow()
+    windowManager = WindowManager()
+    windowManager.showLoginWindow()
 
     sys.exit(app.exec_())
 
