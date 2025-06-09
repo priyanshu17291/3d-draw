@@ -9,6 +9,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QTimer
 import trimesh
 import os
+import json
+from datetime import datetime
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -21,6 +23,7 @@ class MainWindow(QMainWindow):
         self.edges = []
         self.selected_points = []
         self.surfaces = []  # List to store all created surface meshes
+        self.surfaces_stores = []  # Store original surface points for animation
 
         # UI and 3D setup
         self.init_ui()
@@ -70,8 +73,8 @@ class MainWindow(QMainWindow):
 
         # Buttons and their handlers including the new button
         buttons = [
-            ("Open File", lambda: QFileDialog.getOpenFileName(self, "Open File", "", "All Files (*)")[0]),
-            ("Save File", lambda: QFileDialog.getSaveFileName(self, "Save File", "", "All Files (*)")[0]),
+            ("Open File", self.open_file_dialog),
+            ("Save File",self.save_file_dialog),
             ("Add Point", self.add_point),
             ("Connect Selected Points", self.connect_points),
             ("Generate Surface", self.generate_surface),
@@ -104,45 +107,86 @@ class MainWindow(QMainWindow):
             left_clicking=True
         )
 
-    def load_structure(self, file_path):
-        try:
-            mesh = pv.read(file_path)
-            self.plotter.clear()  # Clear current scene
-
-            # Re-add mesh to the scene
-            self.plotter.add_mesh(mesh, show_edges=True)
-            self.plotter.reset_camera()
-            self.plotter.render()
-            self.loaded_mesh = mesh
-            print(f"Loaded: {file_path}")
-        except Exception as e:
-            print(f"Failed to load file: {e}")
-
     def save_structure(self, file_path):
+        if not file_path.endswith('.json'):
+            file_path += '.json'
+
         try:
-            # Combine all elements (points, lines, surfaces) into a single PolyData if needed
-            if hasattr(self, 'loaded_mesh'):
-                self.loaded_mesh.save(file_path)
-                print(f"Saved to: {file_path}")
-            else:
-                print("No mesh loaded or generated to save.")
+            # Convert all coordinates to native Python floats for JSON serialization
+            surfaces = [
+                [[float(coord) for coord in point] for point in surface]
+                for surface in self.surfaces_stores
+            ]
+
+            # Similarly convert points and edges if needed
+            points = [[float(coord) for coord in point] for point in self.points]
+            edges = [[int(e) for e in edge] for edge in self.edges]  # edges are indices, keep as int
+
+            structure_data = {
+                "points": points,
+                "edges": edges,
+                "surfaces": surfaces,
+                "meta": {
+                    "created_by": "Dhruv",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "filename": os.path.basename(file_path)
+                }
+            }
+
+            with open(file_path, 'w') as f:
+                json.dump(structure_data, f, indent=2)
+
+            self.status.setText(f"Structure saved to {file_path}")
         except Exception as e:
-            print(f"Failed to save file: {e}")
-    def generate_surface(self):
-        if len(self.selected_points) < 3:
-            self.status.setText("❌ Select at least 3 points to generate a surface.")
-            return
+            self.status.setText(f"Failed to save: {e}")
 
-        # Get selected point coordinates
-        pts = np.array([self.points[i] for i in self.selected_points])
 
-        # Create surface mesh using Delaunay triangulation
+
+
+
+    def save_file_dialog(self):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save File", "", "JSON Files (*.json);;All Files (*)")
+        if file_path:
+            if not file_path.endswith(".json"):
+                file_path += ".json"
+            self.save_structure(file_path)
+        else:
+            self.status.setText("Save file cancelled.")
+
+    def load_structure_from_json(self, file_path):
+        try:
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+
+            self.points = data["points"]
+            self.edges = data["edges"]
+            self.surfaces = []  # clear current surfaces
+            self.surfaces_stores = []
+
+            self.loaded_mesh = None  # No mesh; reconstructing
+
+            self.plotter.clear()
+
+            # For each stored surface (array of points), generate surface mesh
+            for surface_points in data.get("surfaces", []):
+                self.generate_surface_from_points(surface_points)
+
+            self.update_plot()
+
+            self.status.setText(f"Loaded structure from JSON: {file_path}")
+        except Exception as e:
+            self.status.setText(f"Failed to load JSON: {e}")
+
+    
+    def generate_surface_from_points(self, points):
+        pts = np.array(points)
+        self.surfaces_stores.append(pts.copy())
+
         surface = pv.PolyData(pts).delaunay_2d()
         surface = surface.subdivide(nsub=3, subfilter="linear")
         surface = surface.smooth(n_iter=100, relaxation_factor=0.1)
         self.surfaces.append(surface)
 
-        # Add surface to the plotter
         self.plotter.add_mesh(
             surface,
             color='lightgreen',
@@ -156,9 +200,18 @@ class MainWindow(QMainWindow):
             smooth_shading=True
         )
 
+
+    def generate_surface(self):
+        if len(self.selected_points) < 3:
+            self.status.setText("❌ Select at least 3 points to generate a surface.")
+            return
+
+        points = [self.points[i] for i in self.selected_points]
+        self.generate_surface_from_points(points)
         self.status.setText("✅ Surface generated.")
         self.selected_points.clear()
-        self.update_plot(redraw_surfaces=False)  # Prevent surfaces from being cleared
+        self.update_plot(redraw_surfaces=False)
+
 
 
     def update_plot(self, redraw_surfaces=True):
@@ -231,6 +284,20 @@ class MainWindow(QMainWindow):
         self.surface_modified = True
         self.vibration_phase += 0.05
         self.plotter.update()
+
+    def open_file_dialog(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open File",
+            "",
+            "Mesh Files (*.vtk *.ply *.obj *.stl *.gltf *.glb);;All Files (*)"
+        )
+        if file_path:
+            self.load_structure_from_json(file_path)
+            self.status.setText(f"Loaded file: {file_path}")
+        else:
+            self.status.setText("Open file cancelled.")
+
 
     def export_to_gltf(self):
         """Export the current 3D structure to a GLTF file using trimesh."""
