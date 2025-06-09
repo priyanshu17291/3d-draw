@@ -87,7 +87,7 @@ class ProjectManager:
             return False
 
 class ProjectDialog(QWidget):
-    """Dialog for project management."""
+    """Dialog for project manaement."""
     
     def __init__(self, project_manager, parent=None):
         super().__init__()

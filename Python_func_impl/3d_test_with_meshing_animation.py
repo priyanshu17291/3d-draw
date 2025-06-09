@@ -63,7 +63,12 @@ class MainWindow(QMainWindow):
             field.setPlaceholderText(f"Coord {['X','Y','Z'][i]}")
             control_panel.addWidget(field)
 
-        # Buttons and their handlers
+        # NEW input field for number of points to add (n)
+        self.input_n = QLineEdit()
+        self.input_n.setPlaceholderText("Number of points to add (n)")
+        control_panel.addWidget(self.input_n)
+
+        # Buttons and their handlers including the new button
         buttons = [
             ("Open File", lambda: QFileDialog.getOpenFileName(self, "Open File", "", "All Files (*)")[0]),
             ("Save File", lambda: QFileDialog.getSaveFileName(self, "Save File", "", "All Files (*)")[0]),
@@ -74,7 +79,7 @@ class MainWindow(QMainWindow):
             ("Clear All", self.clear_all),
             ("Test Select First Point", self.test_select_first_point),
             ("Export to GLTF", self.export_to_gltf),
-
+            ("Add Points Along Line", self.add_points_along_line),  # NEW button added here
         ]
         for label, handler in buttons:
             btn = QPushButton(label)
@@ -85,10 +90,6 @@ class MainWindow(QMainWindow):
         start_vibration_btn = QPushButton("Start Vibration")
         start_vibration_btn.clicked.connect(self.start_vibration)
         control_panel.addWidget(start_vibration_btn)
-
-        # stop_vibration_btn = QPushButton("Stop Vibration")
-        # stop_vibration_btn.clicked.connect(self.stop_vibration)
-        # control_panel.addWidget(stop_vibration_btn)
 
         # Status label
         self.status = QLabel("Status: Ready")
@@ -162,22 +163,31 @@ class MainWindow(QMainWindow):
 
     def update_plot(self, redraw_surfaces=True):
         """Refresh 3D scene, optionally skipping surface re-addition."""
+
+        # Remove old points mesh (don't reset camera yet)
         self.plotter.remove_actor("points_mesh", reset_camera=False)
 
+        # If no points, nothing to draw
         if not self.points:
             return
 
-        mesh = pv.PolyData(np.array(self.points, dtype=np.float32))  # Prevent warnings
+        # Create PolyData mesh from points
+        mesh = pv.PolyData(np.array(self.points, dtype=np.float32))  # Use float32 to avoid warnings
+
+        # If edges exist, create lines representation
         if self.edges:
+            # Each line has format [num_points_in_line, point1_index, point2_index]
             lines = np.array([[2, *edge] for edge in self.edges])
             mesh.lines = lines
 
+        # Assign colors: red for selected points, blue otherwise
         colors = np.array([
             [255, 0, 0] if i in self.selected_points else [0, 0, 255]
             for i in range(len(self.points))
         ])
         mesh["colors"] = colors
 
+        # Add points mesh to plotter
         self.plotter.add_mesh(
             mesh,
             scalars="colors",
@@ -188,6 +198,7 @@ class MainWindow(QMainWindow):
             line_width=5
         )
 
+        # Optionally redraw surfaces if any (like generated mesh surfaces)
         if redraw_surfaces and hasattr(self, "surfaces"):
             for i, surface in enumerate(self.surfaces):
                 self.plotter.add_mesh(
@@ -198,7 +209,9 @@ class MainWindow(QMainWindow):
                     show_edges=True
                 )
 
+        # Reset camera to include all points, but could be modified
         self.plotter.reset_camera()
+
 
 
     def animate_surface(self):
@@ -396,6 +409,87 @@ class MainWindow(QMainWindow):
         if self.vibration_timer.isActive():
             self.vibration_timer.stop()
             self.status.setText("🔇 Vibration stopped")
+
+    def add_points_along_line(self):
+        # Check if enough points are selected
+        if len(self.selected_points) < 2:
+            self.status.setText("❌ Select at least 2 points to define a line.")
+            return
+
+        pts = [self.points[i] for i in self.selected_points]
+
+        # Check if points are collinear
+        if not self.are_points_collinear(pts):
+            self.status.setText("❌ Selected points are NOT in the same line.")
+            return
+
+        # Read n from input
+        try:
+            n = int(self.input_n.text())
+            if n <= 0:
+                raise ValueError
+        except ValueError:
+            self.status.setText("❌ Enter a valid positive integer for n.")
+            return
+
+        # Add n points along the line
+        self.extend_points_along_line(pts, n)
+        self.status.setText(f"✅ Added {n} points along the line.")
+        self.update_plot()
+
+    def are_points_collinear(self, pts):
+        # At least 2 points needed
+        if len(pts) <= 2:
+            return True
+
+        # Vector from first to second point
+        p0 = pts[0]
+        p1 = pts[1]
+        v = [p1[i] - p0[i] for i in range(3)]
+
+        # Check every other point lies on the line by verifying
+        # that vector from p0 to pt is parallel to v
+        for pt in pts[2:]:
+            w = [pt[i] - p0[i] for i in range(3)]
+
+            # Cross product of v and w should be zero vector if collinear
+            cross = [
+                v[1]*w[2] - v[2]*w[1],
+                v[2]*w[0] - v[0]*w[2],
+                v[0]*w[1] - v[1]*w[0]
+            ]
+
+            # If magnitude of cross product > small epsilon, not collinear
+            if (cross[0]**2 + cross[1]**2 + cross[2]**2) > 1e-10:
+                return False
+
+        return True
+
+    def extend_points_along_line(self, pts, n):
+        # Use first two points to define line direction
+        p0 = pts[0]
+        p1 = pts[1]
+        direction = [p1[i] - p0[i] for i in range(3)]
+
+        # Normalize direction vector
+        length = sum(d**2 for d in direction) ** 0.5
+        if length == 0:
+            return  # Avoid division by zero
+        direction = [d / length for d in direction]
+
+        # Find last point in the selected points along the line
+        # We'll add points starting from the max projection point
+        projections = [sum((pt[i] - p0[i]) * direction[i] for i in range(3)) for pt in pts]
+        max_proj = max(projections)
+
+        # Distance between two first points (step size)
+        step = length
+
+        # Add n points beyond max_proj in direction
+        for i in range(1, n + 1):
+            new_point = [p0[j] + (max_proj + i * step) * direction[j] for j in range(3)]
+            self.points.append(new_point)
+
 
 
 if __name__ == '__main__':
