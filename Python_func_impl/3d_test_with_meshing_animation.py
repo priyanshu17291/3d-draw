@@ -11,6 +11,59 @@ import trimesh
 import os
 import json
 from datetime import datetime
+from PyQt5.QtWidgets import QDialog, QInputDialog
+from PyQt5.QtWidgets import QDockWidget, QTreeWidget, QTreeWidgetItem, QLabel, QVBoxLayout, QWidget
+
+class PointsInputDialog(QDialog):
+    def __init__(self, num_points, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Enter points coordinates")
+        self.num_points = num_points
+        self.inputs = []  # to store QLineEdit tuples for x,y,z
+
+        layout = QVBoxLayout()
+
+        # Add input rows
+        for i in range(num_points):
+            h_layout = QHBoxLayout()
+            h_layout.addWidget(QLabel(f"Point {i+1}: "))
+            x_input = QLineEdit()
+            x_input.setPlaceholderText("x")
+            y_input = QLineEdit()
+            y_input.setPlaceholderText("y")
+            z_input = QLineEdit()
+            z_input.setPlaceholderText("z")
+            h_layout.addWidget(x_input)
+            h_layout.addWidget(y_input)
+            h_layout.addWidget(z_input)
+            layout.addLayout(h_layout)
+            self.inputs.append((x_input, y_input, z_input))
+
+        # Add buttons
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Cancel")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+
+        self.setLayout(layout)
+
+    def get_points(self):
+        points = []
+        for x_in, y_in, z_in in self.inputs:
+            try:
+                x = float(x_in.text())
+                y = float(y_in.text())
+                z = float(z_in.text())
+                points.append([x, y, z])
+            except ValueError:
+                # invalid input, return None
+                return None
+        return points
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -74,7 +127,7 @@ class MainWindow(QMainWindow):
         # Buttons and their handlers including the new button
         buttons = [
             ("Open File", self.open_file_dialog),
-            ("Save File",self.save_file_dialog),
+            ("Save File", self.save_file_dialog),
             ("Add Point", self.add_point),
             ("Connect Selected Points", self.connect_points),
             ("Generate Surface", self.generate_surface),
@@ -83,7 +136,10 @@ class MainWindow(QMainWindow):
             ("Test Select First Point", self.test_select_first_point),
             ("Export to GLTF", self.export_to_gltf),
             ("Add Points Along Line", self.add_points_along_line),  # NEW button added here
+            ("Add Multiple Points", self.ask_number_of_points),
+            ("Show Active Elements", self.show_active_elements_panel),  # <-- Add the button here!
         ]
+
         for label, handler in buttons:
             btn = QPushButton(label)
             btn.clicked.connect(handler)
@@ -106,6 +162,84 @@ class MainWindow(QMainWindow):
             tolerance=0.15,
             left_clicking=True
         )
+
+    
+    def open_points_input_dialog(self, num_points):
+        dialog = PointsInputDialog(num_points, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            points = dialog.get_points()
+            if points is None:
+                self.status.setText("Invalid coordinates entered.")
+                return
+            # Add points to your structure
+            self.points.extend(points)
+            self.update_plot()
+            self.status.setText(f"Added {len(points)} points.")
+
+
+    def show_active_elements_panel(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QLabel
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Active Elements")
+        dialog.resize(400, 600)
+        layout = QVBoxLayout(dialog)
+
+        points_list = QListWidget()
+        lines_list = QListWidget()
+        surfaces_list = QListWidget()
+
+        layout.addWidget(QLabel("Points"))
+        layout.addWidget(points_list)
+        layout.addWidget(QLabel("Lines"))
+        layout.addWidget(lines_list)
+        layout.addWidget(QLabel("Surfaces"))
+        layout.addWidget(surfaces_list)
+
+        for idx, point in enumerate(self.points):
+            points_list.addItem(f"Point {idx}: {point}")
+
+        for idx, edge in enumerate(self.edges):
+            lines_list.addItem(f"Line {idx}: {edge}")
+
+        for idx, surface in enumerate(self.surfaces_stores):
+            surfaces_list.addItem(f"Surface {idx}: {len(surface)} points")
+
+        points_list.currentRowChanged.connect(self.highlight_point)
+        lines_list.currentRowChanged.connect(self.highlight_line)
+        surfaces_list.currentRowChanged.connect(self.highlight_surface)
+
+        dialog.exec_()
+
+
+    def highlight_element_from_tree(self, item, column):
+        element_type, index = item.data(0, Qt.UserRole)
+        self.plotter.clear()  # Clear previous highlights
+
+        if element_type == "point":
+            point = self.points[index]
+            self.plotter.add_mesh(pv.Sphere(center=point, radius=0.2), color='red', name="highlight_point")
+            self.status.setText(f"🔵 Highlighted Point {index}: {point}")
+
+        elif element_type == "edge":
+            pt1 = self.points[self.edges[index][0]]
+            pt2 = self.points[self.edges[index][1]]
+            line = pv.Line(pt1, pt2)
+            self.plotter.add_mesh(line, color='blue', line_width=5, name="highlight_edge")
+            self.status.setText(f"🟢 Highlighted Edge {index}: {pt1} -> {pt2}")
+
+        elif element_type == "surface":
+            pts = np.array(self.surfaces_stores[index])
+            surface = pv.PolyData(pts).delaunay_2d()
+            self.plotter.add_mesh(surface, color='green', opacity=0.7, name="highlight_surface")
+            self.status.setText(f"🟡 Highlighted Surface {index} with {len(pts)} points")
+
+        self.update_plot(redraw_surfaces=False)
+
+    def ask_number_of_points(self):
+        num, ok = QInputDialog.getInt(self, "Number of points", "Enter number of points:", min=1, max=100)
+        if ok:
+            self.open_points_input_dialog(num)
 
     def save_structure(self, file_path):
         if not file_path.endswith('.json'):
@@ -141,8 +275,54 @@ class MainWindow(QMainWindow):
             self.status.setText(f"Failed to save: {e}")
 
 
+    def show_active_elements_panel(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QLabel, QHBoxLayout, QWidget
 
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Active Elements")
+        dialog.resize(400, 600)
 
+        layout = QVBoxLayout(dialog)
+
+        # Create three list widgets
+        points_list = QListWidget()
+        points_list.setSelectionMode(QListWidget.SingleSelection)
+        points_list.setToolTip("Active Points")
+
+        lines_list = QListWidget()
+        lines_list.setSelectionMode(QListWidget.SingleSelection)
+        lines_list.setToolTip("Active Lines")
+
+        surfaces_list = QListWidget()
+        surfaces_list.setSelectionMode(QListWidget.SingleSelection)
+        surfaces_list.setToolTip("Active Surfaces")
+
+        # Labels for sections
+        layout.addWidget(QLabel("Points"))
+        layout.addWidget(points_list)
+        layout.addWidget(QLabel("Lines"))
+        layout.addWidget(lines_list)
+        layout.addWidget(QLabel("Surfaces"))
+        layout.addWidget(surfaces_list)
+
+        # Populate points list
+        for idx, point in enumerate(self.points):
+            points_list.addItem(f"Point {idx}: {point}")
+
+        # Populate lines list (assuming self.edges is list of (p1_idx, p2_idx))
+        for idx, edge in enumerate(self.edges):
+            lines_list.addItem(f"Line {idx}: {edge}")
+
+        # Populate surfaces list (assuming self.surfaces_stores is list of lists of points)
+        for idx, surface in enumerate(self.surfaces_stores):
+            surfaces_list.addItem(f"Surface {idx}: {len(surface)} points")
+
+        # Connect signals to highlight on selection
+        points_list.currentRowChanged.connect(lambda i: self.highlight_point(i))
+        lines_list.currentRowChanged.connect(lambda i: self.highlight_line(i))
+        surfaces_list.currentRowChanged.connect(lambda i: self.highlight_surface(i))
+
+        dialog.exec_()
 
     def save_file_dialog(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save File", "", "JSON Files (*.json);;All Files (*)")
@@ -264,6 +444,63 @@ class MainWindow(QMainWindow):
 
         # Reset camera to include all points, but could be modified
         self.plotter.reset_camera()
+
+    def clear_highlights(self):
+        # Remove highlight actors, ignore errors if not present
+        for name in ['highlight_point', 'highlight_line', 'highlight_surface']:
+            try:
+                self.plotter.remove_actor(name)
+            except Exception:
+                pass
+
+    def highlight_point(self, idx):
+        self.clear_highlights()
+        if idx < 0 or idx >= len(self.points):
+            return
+        # Use a single point mesh with larger point size and red color
+        mesh = pv.PolyData([self.points[idx]])
+        colors = np.array([[255, 0, 0]])  # red
+        mesh["colors"] = colors
+        self.plotter.add_mesh(
+            mesh,
+            scalars="colors",
+            rgb=True,
+            name="highlight_point",
+            point_size=15,  # same size as normal points
+            render_points_as_spheres=True,
+        )
+        self.status.setText(f"Selected Point {idx}: {self.points[idx]}")
+        self.plotter.render()
+
+
+    def highlight_line(self, idx):
+        self.clear_highlights()
+        if idx < 0 or idx >= len(self.edges):
+            return
+        p1_idx, p2_idx = self.edges[idx]
+        p1 = self.points[p1_idx]
+        p2 = self.points[p2_idx]
+        line = pv.Line(p1, p2)
+        self.plotter.add_mesh(line, color='red', line_width=5, name='highlight_line')
+        self.status.setText(f"Selected Line {idx}: Points {p1_idx} to {p2_idx}")
+        self.plotter.render()
+
+    def highlight_surface(self, idx):
+        self.clear_highlights()
+        if idx < 0 or idx >= len(self.surfaces_stores):
+            return
+        surface_points = np.array(self.surfaces_stores[idx], dtype=np.float32)
+        if len(surface_points) < 3:
+            # Can't create surface mesh with fewer than 3 points, just highlight points instead
+            for pt in surface_points:
+                sphere = pv.Sphere(center=pt, radius=0.1)
+                self.plotter.add_mesh(sphere, color='orange', name='highlight_surface')
+        else:
+            surface = pv.PolyData(surface_points).delaunay_2d()
+            self.plotter.add_mesh(surface, color='orange', opacity=0.6, name='highlight_surface', show_edges=True)
+        point_indices = ", ".join(str(i) for i in range(len(surface_points)))   
+        self.status.setText(f"Selected Surface {idx}: Points indices [{point_indices}]")
+        self.plotter.render()
 
 
 
