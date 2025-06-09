@@ -91,6 +91,10 @@ class MainWindow(QMainWindow):
         self.vibration_timer.timeout.connect(self.animate_surface)
         self.vibration_phase = 0.0
 
+        #directory tracing
+        self.current_file_path = None
+
+
 
     def init_ui(self):
         """Create and lay out widgets."""
@@ -127,7 +131,8 @@ class MainWindow(QMainWindow):
         # Buttons and their handlers including the new button
         buttons = [
             ("Open File", self.open_file_dialog),
-            ("Save File", self.save_file_dialog),
+            ("Save", self.save),
+            ("Save As", self.save_as),
             ("Add Point", self.add_point),
             ("Connect Selected Points", self.connect_points),
             ("Generate Surface", self.generate_surface),
@@ -246,19 +251,14 @@ class MainWindow(QMainWindow):
             file_path += '.json'
 
         try:
-            # Convert all coordinates to native Python floats for JSON serialization
             surfaces = [
-                [[float(coord) for coord in point] for point in surface]
+                [[int(coord) for coord in point] for point in surface]
                 for surface in self.surfaces_stores
             ]
 
-            # Similarly convert points and edges if needed
-            points = [[float(coord) for coord in point] for point in self.points]
-            edges = [[int(e) for e in edge] for edge in self.edges]  # edges are indices, keep as int
-
             structure_data = {
-                "points": points,
-                "edges": edges,
+                "points": self.points,
+                "edges": self.edges,
                 "surfaces": surfaces,
                 "meta": {
                     "created_by": "Dhruv",
@@ -270,7 +270,8 @@ class MainWindow(QMainWindow):
             with open(file_path, 'w') as f:
                 json.dump(structure_data, f, indent=2)
 
-            self.status.setText(f"Structure saved to {file_path}")
+            self.current_file_path = file_path
+            self.status.setText(f"Saved to {file_path}")
         except Exception as e:
             self.status.setText(f"Failed to save: {e}")
 
@@ -324,7 +325,7 @@ class MainWindow(QMainWindow):
 
         dialog.exec_()
 
-    def save_file_dialog(self):
+    def save_as(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save File", "", "JSON Files (*.json);;All Files (*)")
         if file_path:
             if not file_path.endswith(".json"):
@@ -332,6 +333,13 @@ class MainWindow(QMainWindow):
             self.save_structure(file_path)
         else:
             self.status.setText("Save file cancelled.")
+    
+    def save(self):
+        if self.current_file_path:
+            self.save_structure(self.current_file_path)
+        else:
+            self.save_as()
+
 
     def load_structure_from_json(self, file_path):
         try:
@@ -342,6 +350,7 @@ class MainWindow(QMainWindow):
             self.edges = data["edges"]
             self.surfaces = []  # clear current surfaces
             self.surfaces_stores = []
+            self.current_file_path = file_path
 
             self.loaded_mesh = None  # No mesh; reconstructing
 
