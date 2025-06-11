@@ -14,6 +14,15 @@ from datetime import datetime
 from PyQt5.QtWidgets import QDialog, QInputDialog, QScrollArea, QDialogButtonBox
 from PyQt5.QtWidgets import QDockWidget, QTreeWidget, QTreeWidgetItem, QLabel, QVBoxLayout, QWidget
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QLabel
+from PyQt5.QtCore import Qt
+
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLineEdit, QPushButton, QLabel, QSplitter, QDialog, QListWidget,
+    QTabWidget, QDockWidget, QMenuBar, QMenu, QAction
+)
+
+
 
 class Sensor:
     def __init__(self, sensor_id, location, sensor_type=None, status="active"):
@@ -109,68 +118,102 @@ class MainWindow(QMainWindow):
 
 
     def init_ui(self):
-        """Create and lay out widgets."""
         self.frame = QWidget()
         self.setCentralWidget(self.frame)
 
-        # Use a splitter for a resizable layout
-        self.layout = QHBoxLayout(self.frame)
-        splitter = QSplitter()
-        self.layout.addWidget(splitter)
+        # Create main layout and splitter
+        self.layout = QVBoxLayout(self.frame)
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.layout.addWidget(self.splitter)
 
-        # Left-side controls
+        # === Create a Menu Bar ===
+        menubar = QMenuBar(self)
+        self.layout.setMenuBar(menubar)
+
+        # ==== File Menu ====
+        file_menu = menubar.addMenu("File")
+        file_menu.addAction("Open File", self.open_file_dialog)
+        file_menu.addAction("Save", self.save)
+        file_menu.addAction("Save As", self.save_as)
+        file_menu.addSeparator()
+        file_menu.addAction("Export to GLTF", self.export_to_gltf)
+
+        # ==== Edit Menu ====
+        edit_menu = menubar.addMenu("Edit")
+        edit_menu.addAction("Clear Selection", self.clear_selection)
+        edit_menu.addAction("Clear All", self.clear_all)
+
+        # ==== Insert Menu ====
+        insert_menu = menubar.addMenu("Insert")
+        insert_menu.addAction("Add Point", self.add_point)
+        insert_menu.addAction("Add Multiple Points", self.ask_number_of_points)
+        insert_menu.addAction("Add Points Along Line", self.add_points_along_line)
+        insert_menu.addAction("Add Sensor", self.add_sensor)
+        insert_menu.addAction("Connect Selected Points", self.connect_points)
+        insert_menu.addAction("Generate Surface", self.generate_surface)
+
+        # ==== View Menu ====
+        view_menu = menubar.addMenu("View")
+        view_menu.addAction("Show Active Elements", self.toggle_active_panel)
+
+        # ==== Debug Menu ====
+        debug_menu = menubar.addMenu("Debug")
+        debug_menu.addAction("Test Select First Point", self.test_select_first_point)
+
+        # ==== Tools Menu ====
+        tools_menu = menubar.addMenu("Tools")
+        tools_menu.addAction("Start Vibration", self.start_vibration)
+
+        # === Left Panel: Control Inputs ===
         control_panel_widget = QWidget()
-        control_panel = QVBoxLayout(control_panel_widget)
-        splitter.addWidget(control_panel_widget)
-
-        # Plotter widget on the right
-        self.plotter = QtInteractor(self.frame)
-        self.plotter.enable_terrain_style()
-        self.plotter.add_axes(interactive=True)
-        splitter.addWidget(self.plotter.interactor)
+        control_layout = QVBoxLayout(control_panel_widget)
+        self.splitter.addWidget(control_panel_widget)
 
         # Coordinate input fields
         self.input_fields = [QLineEdit() for _ in range(3)]
         for i, field in enumerate(self.input_fields):
             field.setPlaceholderText(f"Coord {['X','Y','Z'][i]}")
-            control_panel.addWidget(field)
+            control_layout.addWidget(field)
 
-        # NEW input field for number of points to add (n)
         self.input_n = QLineEdit()
         self.input_n.setPlaceholderText("Number of points to add (n)")
-        control_panel.addWidget(self.input_n)
+        control_layout.addWidget(self.input_n)
 
-        # Buttons and their handlers including the new button
-        buttons = [
-            ("Open File", self.open_file_dialog),
-            ("Save", self.save),
-            ("Save As", self.save_as),
-            ("Add Point", self.add_point),
-            ("Connect Selected Points", self.connect_points),
-            ("Generate Surface", self.generate_surface),
-            ("Clear Selection", self.clear_selection),
-            ("Clear All", self.clear_all),
-            ("Test Select First Point", self.test_select_first_point),
-            ("Export to GLTF", self.export_to_gltf),
-            ("Add Points Along Line", self.add_points_along_line),  # NEW button added here
-            ("Add Multiple Points", self.ask_number_of_points),
-            ("Show Active Elements", self.show_active_elements_panel),  # <-- Add the button here!
-            ("Add Sensor", self.add_sensor),  # Add sensor button
-        ]
-
-        for label, handler in buttons:
-            btn = QPushButton(label)
-            btn.clicked.connect(handler)
-            control_panel.addWidget(btn)
-
-        # Vibration buttons
-        start_vibration_btn = QPushButton("Start Vibration")
-        start_vibration_btn.clicked.connect(self.start_vibration)
-        control_panel.addWidget(start_vibration_btn)
-
-        # Status label
+        # === Status Bar ===
         self.status = QLabel("Status: Ready")
-        control_panel.addWidget(self.status)
+        control_layout.addWidget(self.status)
+
+        # === Right Panel: PyVista plotter ===
+        self.plotter = QtInteractor(self.frame)
+        self.plotter.enable_terrain_style()
+        self.plotter.add_axes(interactive=True)
+        self.splitter.addWidget(self.plotter.interactor)
+
+        # === Dock widget for active elements ===
+        self.active_dock = QDockWidget("Active Elements", self)
+        self.active_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+
+        # This will hold your list widgets
+        self.active_panel = QWidget()
+        active_layout = QVBoxLayout(self.active_panel)
+
+        self.points_list = QListWidget()
+        self.lines_list = QListWidget()
+        self.surfaces_list = QListWidget()
+        self.sensors_list = QListWidget()
+
+        active_layout.addWidget(QLabel("Points"))
+        active_layout.addWidget(self.points_list)
+        active_layout.addWidget(QLabel("Lines"))
+        active_layout.addWidget(self.lines_list)
+        active_layout.addWidget(QLabel("Surfaces"))
+        active_layout.addWidget(self.surfaces_list)
+        active_layout.addWidget(QLabel("Sensors"))
+        active_layout.addWidget(self.sensors_list)
+
+        self.active_dock.setWidget(self.active_panel)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.active_dock)
+        self.active_dock.hide()  # Initially hidden
 
         # Enable point picking
         self.plotter.enable_point_picking(
@@ -180,6 +223,12 @@ class MainWindow(QMainWindow):
             tolerance=0.15,
             left_clicking=True
         )
+
+    def toggle_active_panel(self):
+        if self.active_dock.isVisible():
+            self.active_dock.hide()
+        else:
+            self.active_dock.show()
 
     
     def open_points_input_dialog(self, num_points):
