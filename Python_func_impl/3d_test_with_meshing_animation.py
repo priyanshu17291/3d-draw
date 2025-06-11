@@ -14,6 +14,14 @@ from datetime import datetime
 from PyQt5.QtWidgets import QDialog, QInputDialog
 from PyQt5.QtWidgets import QDockWidget, QTreeWidget, QTreeWidgetItem, QLabel, QVBoxLayout, QWidget
 
+class Sensor:
+    def __init__(self, sensor_id, location, sensor_type=None, status="active"):
+        self.id = sensor_id
+        self.location = location  # [x, y, z]
+        self.type = sensor_type
+        self.status = status
+
+
 class PointsInputDialog(QDialog):
     def __init__(self, num_points, parent=None):
         super().__init__(parent)
@@ -77,6 +85,7 @@ class MainWindow(QMainWindow):
         self.selected_points = []
         self.surfaces = []  # List to store all created surface meshes
         self.surfaces_stores = []  # Store original surface points for animation
+        self.sensors = []  # List to store Sensor objects
 
         # UI and 3D setup
         self.init_ui()
@@ -143,6 +152,7 @@ class MainWindow(QMainWindow):
             ("Add Points Along Line", self.add_points_along_line),  # NEW button added here
             ("Add Multiple Points", self.ask_number_of_points),
             ("Show Active Elements", self.show_active_elements_panel),  # <-- Add the button here!
+            ("Add Sensor", self.add_sensor),  # Add sensor button
         ]
 
         for label, handler in buttons:
@@ -180,6 +190,20 @@ class MainWindow(QMainWindow):
             self.points.extend(points)
             self.update_plot()
             self.status.setText(f"Added {len(points)} points.")
+
+    def add_sensor(self):
+        try:
+            coords = [float(f.text()) for f in self.input_fields]
+            self.sensors.append(coords)
+
+            for f in self.input_fields:
+                f.clear()
+
+            self.status.setText(f"✅ Added Sensor at {coords}")
+            self.update_plot()
+
+        except ValueError:
+            self.status.setText("❌ Enter valid X, Y, Z coordinates")
 
 
     def show_active_elements_panel(self):
@@ -406,8 +430,9 @@ class MainWindow(QMainWindow):
     def update_plot(self, redraw_surfaces=True):
         """Refresh 3D scene, optionally skipping surface re-addition."""
 
-        # Remove old points mesh (don't reset camera yet)
+        # Remove old meshes
         self.plotter.remove_actor("points_mesh", reset_camera=False)
+        self.plotter.remove_actor("sensors_mesh", reset_camera=False)  # <--- REMOVE sensor actors
 
         # If no points, nothing to draw
         if not self.points:
@@ -440,6 +465,17 @@ class MainWindow(QMainWindow):
             line_width=5
         )
 
+        # ✅ NEW: Plot sensors if any
+        if hasattr(self, "sensors") and self.sensors:
+            sensor_mesh = pv.PolyData(np.array(self.sensors, dtype=np.float32))
+            self.plotter.add_mesh(
+                sensor_mesh,
+                color="green",
+                point_size=15,
+                render_points_as_spheres=True,
+                name="sensors_mesh"
+            )
+
         # Optionally redraw surfaces if any (like generated mesh surfaces)
         if redraw_surfaces and hasattr(self, "surfaces"):
             for i, surface in enumerate(self.surfaces):
@@ -451,8 +487,9 @@ class MainWindow(QMainWindow):
                     show_edges=True
                 )
 
-        # Reset camera to include all points, but could be modified
+        # Reset camera to include all points
         self.plotter.reset_camera()
+
 
     def clear_highlights(self):
         # Remove highlight actors, ignore errors if not present
@@ -695,6 +732,11 @@ class MainWindow(QMainWindow):
         self.points.clear()
         self.edges.clear()
         self.selected_points.clear()
+        self.surfaces.clear()
+        self.surfaces_stores.clear()
+        self.plotter.clear()
+        self.plotter.reset_camera()
+        self.loaded_mesh = None
         self.status.setText("All cleared")
         self.update_plot()
 
