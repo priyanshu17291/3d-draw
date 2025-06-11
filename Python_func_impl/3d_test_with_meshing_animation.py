@@ -13,6 +13,7 @@ import json
 from datetime import datetime
 from PyQt5.QtWidgets import QDialog, QInputDialog, QScrollArea, QDialogButtonBox
 from PyQt5.QtWidgets import QDockWidget, QTreeWidget, QTreeWidgetItem, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QLabel
 
 class Sensor:
     def __init__(self, sensor_id, location, sensor_type=None, status="active"):
@@ -213,12 +214,13 @@ class MainWindow(QMainWindow):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Active Elements")
-        dialog.resize(400, 600)
+        dialog.resize(400, 700)
         layout = QVBoxLayout(dialog)
 
         points_list = QListWidget()
         lines_list = QListWidget()
         surfaces_list = QListWidget()
+        sensors_list = QListWidget()  # New: Sensor list widget
 
         layout.addWidget(QLabel("Points"))
         layout.addWidget(points_list)
@@ -226,7 +228,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(lines_list)
         layout.addWidget(QLabel("Surfaces"))
         layout.addWidget(surfaces_list)
+        layout.addWidget(QLabel("Sensors"))  # New: Sensor label
+        layout.addWidget(sensors_list)
 
+        # Populate all lists
         for idx, point in enumerate(self.points):
             points_list.addItem(f"Point {idx}: {point}")
 
@@ -236,11 +241,17 @@ class MainWindow(QMainWindow):
         for idx, surface in enumerate(self.surfaces_stores):
             surfaces_list.addItem(f"Surface {idx}: {len(surface)} points")
 
+        for idx, sensor in enumerate(self.sensors):  # New: Add sensors
+            sensors_list.addItem(f"Sensor {idx}: {sensor}")
+
+        # Optional: connect signals to highlight functions
         points_list.currentRowChanged.connect(self.highlight_point)
         lines_list.currentRowChanged.connect(self.highlight_line)
         surfaces_list.currentRowChanged.connect(self.highlight_surface)
+        sensors_list.currentRowChanged.connect(self.highlight_sensor)  # New
 
         dialog.exec_()
+
 
 
     def highlight_element_from_tree(self, item, column):
@@ -266,6 +277,18 @@ class MainWindow(QMainWindow):
             self.status.setText(f"🟡 Highlighted Surface {index} with {len(pts)} points")
 
         self.update_plot(redraw_surfaces=False)
+
+    def highlight_sensor(self, idx):
+        self.clear_highlights()
+        if idx < 0 or idx >= len(self.sensors):
+            return
+
+        # Simulate selection by tracking selected sensor index
+        self.selected_sensor = idx  # You need to define this in __init__
+
+        self.status.setText(f"Selected Sensor {idx}: {self.sensors[idx]}")
+        self.update_plot()  # Will trigger color update based on selected_sensor
+
 
     def ask_number_of_points(self):
         num, ok = QInputDialog.getInt(self, "Number of points", "Enter number of points:", min=1, max=100)
@@ -303,53 +326,46 @@ class MainWindow(QMainWindow):
 
 
     def show_active_elements_panel(self):
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QLabel, QHBoxLayout, QWidget
-
         dialog = QDialog(self)
         dialog.setWindowTitle("Active Elements")
-        dialog.resize(400, 600)
-
+        dialog.resize(400, 700)
         layout = QVBoxLayout(dialog)
 
-        # Create three list widgets
         points_list = QListWidget()
-        points_list.setSelectionMode(QListWidget.SingleSelection)
-        points_list.setToolTip("Active Points")
-
         lines_list = QListWidget()
-        lines_list.setSelectionMode(QListWidget.SingleSelection)
-        lines_list.setToolTip("Active Lines")
-
         surfaces_list = QListWidget()
-        surfaces_list.setSelectionMode(QListWidget.SingleSelection)
-        surfaces_list.setToolTip("Active Surfaces")
+        sensors_list = QListWidget()  # New: Sensor list widget
 
-        # Labels for sections
         layout.addWidget(QLabel("Points"))
         layout.addWidget(points_list)
         layout.addWidget(QLabel("Lines"))
         layout.addWidget(lines_list)
         layout.addWidget(QLabel("Surfaces"))
         layout.addWidget(surfaces_list)
+        layout.addWidget(QLabel("Sensors"))  # New: Sensor label
+        layout.addWidget(sensors_list)
 
-        # Populate points list
+        # Populate all lists
         for idx, point in enumerate(self.points):
             points_list.addItem(f"Point {idx}: {point}")
 
-        # Populate lines list (assuming self.edges is list of (p1_idx, p2_idx))
         for idx, edge in enumerate(self.edges):
             lines_list.addItem(f"Line {idx}: {edge}")
 
-        # Populate surfaces list (assuming self.surfaces_stores is list of lists of points)
         for idx, surface in enumerate(self.surfaces_stores):
             surfaces_list.addItem(f"Surface {idx}: {len(surface)} points")
 
-        # Connect signals to highlight on selection
-        points_list.currentRowChanged.connect(lambda i: self.highlight_point(i))
-        lines_list.currentRowChanged.connect(lambda i: self.highlight_line(i))
-        surfaces_list.currentRowChanged.connect(lambda i: self.highlight_surface(i))
+        for idx, sensor in enumerate(self.sensors):  # New: Add sensors
+            sensors_list.addItem(f"Sensor {idx}: {sensor}")
+
+        # Optional: connect signals to highlight functions
+        points_list.currentRowChanged.connect(self.highlight_point)
+        lines_list.currentRowChanged.connect(self.highlight_line)
+        surfaces_list.currentRowChanged.connect(self.highlight_surface)
+        sensors_list.currentRowChanged.connect(self.highlight_sensor)  # New
 
         dialog.exec_()
+
 
     def save_as(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save File", "", "JSON Files (*.json);;All Files (*)")
@@ -456,6 +472,27 @@ class MainWindow(QMainWindow):
         ])
         mesh["colors"] = colors
 
+        # === Draw sensors (as regular points) ===
+        if self.sensors:
+            sensor_coords = np.array(self.sensors, dtype=np.float32)
+            sensor_mesh = pv.PolyData(sensor_coords)
+
+            sensor_colors = np.array([
+                [0, 0, 255] if i == getattr(self, "selected_sensor", -1) else [0, 255, 0]
+                for i in range(len(self.sensors))
+            ])
+            sensor_mesh["colors"] = sensor_colors
+
+            self.plotter.add_mesh(
+                sensor_mesh,
+                scalars="colors",
+                rgb=True,
+                name="sensor_mesh",
+                point_size=15,
+                render_points_as_spheres=True
+    )
+
+
         # Add points mesh to plotter
         self.plotter.add_mesh(
             mesh,
@@ -494,12 +531,17 @@ class MainWindow(QMainWindow):
 
 
     def clear_highlights(self):
-        # Remove highlight actors, ignore errors if not present
-        for name in ['highlight_point', 'highlight_line', 'highlight_surface']:
+        # Clear selections
+        self.selected_points.clear()
+        self.selected_sensor = -1  # Deselect any highlighted sensor
+
+        # Remove highlight actors
+        for name in ['highlight_point', 'highlight_line', 'highlight_surface', 'highlight_sensor']:
             try:
                 self.plotter.remove_actor(name)
             except Exception:
                 pass
+
 
     def highlight_point(self, idx):
         self.clear_highlights()
