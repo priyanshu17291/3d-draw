@@ -11,7 +11,7 @@ import trimesh
 import os
 import json
 from datetime import datetime
-from PyQt5.QtWidgets import QDialog, QInputDialog
+from PyQt5.QtWidgets import QDialog, QInputDialog, QScrollArea, QDialogButtonBox
 from PyQt5.QtWidgets import QDockWidget, QTreeWidget, QTreeWidgetItem, QLabel, QVBoxLayout, QWidget
 
 class Sensor:
@@ -25,53 +25,55 @@ class Sensor:
 class PointsInputDialog(QDialog):
     def __init__(self, num_points, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Enter points coordinates")
-        self.num_points = num_points
-        self.inputs = []  # to store QLineEdit tuples for x,y,z
+        self.setWindowTitle("Enter Points")
+        self.input_fields = []
 
-        layout = QVBoxLayout()
+        # Scrollable widget setup
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
 
-        # Add input rows
+        container = QWidget()
+        form_layout = QVBoxLayout(container)
+
+        # Add coordinate input fields
         for i in range(num_points):
-            h_layout = QHBoxLayout()
-            h_layout.addWidget(QLabel(f"Point {i+1}: "))
+            coord_layout = QHBoxLayout()
             x_input = QLineEdit()
-            x_input.setPlaceholderText("x")
             y_input = QLineEdit()
-            y_input.setPlaceholderText("y")
             z_input = QLineEdit()
-            z_input.setPlaceholderText("z")
-            h_layout.addWidget(x_input)
-            h_layout.addWidget(y_input)
-            h_layout.addWidget(z_input)
-            layout.addLayout(h_layout)
-            self.inputs.append((x_input, y_input, z_input))
+            x_input.setPlaceholderText(f"X{i+1}")
+            y_input.setPlaceholderText(f"Y{i+1}")
+            z_input.setPlaceholderText(f"Z{i+1}")
+            coord_layout.addWidget(QLabel(f"Point {i+1}:"))
+            coord_layout.addWidget(x_input)
+            coord_layout.addWidget(y_input)
+            coord_layout.addWidget(z_input)
+            form_layout.addLayout(coord_layout)
+            self.input_fields.append((x_input, y_input, z_input))
 
-        # Add buttons
-        btn_layout = QHBoxLayout()
-        ok_btn = QPushButton("OK")
-        cancel_btn = QPushButton("Cancel")
-        btn_layout.addWidget(ok_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
+        scroll.setWidget(container)
 
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn.clicked.connect(self.reject)
+        # OK and Cancel buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
 
-        self.setLayout(layout)
+        # Final layout
+        layout = QVBoxLayout(self)
+        layout.addWidget(scroll)
+        layout.addWidget(button_box)
 
     def get_points(self):
         points = []
-        for x_in, y_in, z_in in self.inputs:
-            try:
-                x = float(x_in.text())
-                y = float(y_in.text())
-                z = float(z_in.text())
+        try:
+            for x_input, y_input, z_input in self.input_fields:
+                x = float(x_input.text())
+                y = float(y_input.text())
+                z = float(z_input.text())
                 points.append([x, y, z])
-            except ValueError:
-                # invalid input, return None
-                return None
-        return points
+            return points
+        except ValueError:
+            return None
 
 class MainWindow(QMainWindow):
     def __init__(self):
