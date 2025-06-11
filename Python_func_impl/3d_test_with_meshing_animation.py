@@ -11,59 +11,79 @@ import trimesh
 import os
 import json
 from datetime import datetime
-from PyQt5.QtWidgets import QDialog, QInputDialog
+from PyQt5.QtWidgets import QDialog, QInputDialog, QScrollArea, QDialogButtonBox
 from PyQt5.QtWidgets import QDockWidget, QTreeWidget, QTreeWidgetItem, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QLabel
+from PyQt5.QtCore import Qt
+
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLineEdit, QPushButton, QLabel, QSplitter, QDialog, QListWidget,
+    QTabWidget, QDockWidget, QMenuBar, QMenu, QAction
+)
+
+
+
+class Sensor:
+    def __init__(self, sensor_id, location, sensor_type=None, status="active"):
+        self.id = sensor_id
+        self.location = location  # [x, y, z]
+        self.type = sensor_type
+        self.status = status
+
 
 class PointsInputDialog(QDialog):
     def __init__(self, num_points, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Enter points coordinates")
-        self.num_points = num_points
-        self.inputs = []  # to store QLineEdit tuples for x,y,z
+        self.setWindowTitle("Enter Points")
+        self.input_fields = []
 
-        layout = QVBoxLayout()
+        # Scrollable widget setup
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
 
-        # Add input rows
+        container = QWidget()
+        form_layout = QVBoxLayout(container)
+
+        # Add coordinate input fields
         for i in range(num_points):
-            h_layout = QHBoxLayout()
-            h_layout.addWidget(QLabel(f"Point {i+1}: "))
+            coord_layout = QHBoxLayout()
             x_input = QLineEdit()
-            x_input.setPlaceholderText("x")
             y_input = QLineEdit()
-            y_input.setPlaceholderText("y")
             z_input = QLineEdit()
-            z_input.setPlaceholderText("z")
-            h_layout.addWidget(x_input)
-            h_layout.addWidget(y_input)
-            h_layout.addWidget(z_input)
-            layout.addLayout(h_layout)
-            self.inputs.append((x_input, y_input, z_input))
+            x_input.setPlaceholderText(f"X{i+1}")
+            y_input.setPlaceholderText(f"Y{i+1}")
+            z_input.setPlaceholderText(f"Z{i+1}")
+            coord_layout.addWidget(QLabel(f"Point {i+1}:"))
+            coord_layout.addWidget(x_input)
+            coord_layout.addWidget(y_input)
+            coord_layout.addWidget(z_input)
+            form_layout.addLayout(coord_layout)
+            self.input_fields.append((x_input, y_input, z_input))
 
-        # Add buttons
-        btn_layout = QHBoxLayout()
-        ok_btn = QPushButton("OK")
-        cancel_btn = QPushButton("Cancel")
-        btn_layout.addWidget(ok_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
+        scroll.setWidget(container)
 
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn.clicked.connect(self.reject)
+        # OK and Cancel buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
 
-        self.setLayout(layout)
+        # Final layout
+        layout = QVBoxLayout(self)
+        layout.addWidget(scroll)
+        layout.addWidget(button_box)
 
     def get_points(self):
         points = []
-        for x_in, y_in, z_in in self.inputs:
-            try:
-                x = float(x_in.text())
-                y = float(y_in.text())
-                z = float(z_in.text())
+        try:
+            for x_input, y_input, z_input in self.input_fields:
+                x = float(x_input.text())
+                y = float(y_input.text())
+                z = float(z_input.text())
                 points.append([x, y, z])
-            except ValueError:
-                # invalid input, return None
-                return None
-        return points
+            return points
+        except ValueError:
+            return None
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -77,6 +97,7 @@ class MainWindow(QMainWindow):
         self.selected_points = []
         self.surfaces = []  # List to store all created surface meshes
         self.surfaces_stores = []  # Store original surface points for animation
+        self.sensors = []  # List to store Sensor objects
 
         # UI and 3D setup
         self.init_ui()
@@ -97,67 +118,102 @@ class MainWindow(QMainWindow):
 
 
     def init_ui(self):
-        """Create and lay out widgets."""
         self.frame = QWidget()
         self.setCentralWidget(self.frame)
 
-        # Use a splitter for a resizable layout
-        self.layout = QHBoxLayout(self.frame)
-        splitter = QSplitter()
-        self.layout.addWidget(splitter)
+        # Create main layout and splitter
+        self.layout = QVBoxLayout(self.frame)
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.layout.addWidget(self.splitter)
 
-        # Left-side controls
+        # === Create a Menu Bar ===
+        menubar = QMenuBar(self)
+        self.layout.setMenuBar(menubar)
+
+        # ==== File Menu ====
+        file_menu = menubar.addMenu("File")
+        file_menu.addAction("Open File", self.open_file_dialog)
+        file_menu.addAction("Save", self.save)
+        file_menu.addAction("Save As", self.save_as)
+        file_menu.addSeparator()
+        file_menu.addAction("Export to GLTF", self.export_to_gltf)
+
+        # ==== Edit Menu ====
+        edit_menu = menubar.addMenu("Edit")
+        edit_menu.addAction("Clear Selection", self.clear_selection)
+        edit_menu.addAction("Clear All", self.clear_all)
+
+        # ==== Insert Menu ====
+        insert_menu = menubar.addMenu("Insert")
+        insert_menu.addAction("Add Point", self.add_point)
+        insert_menu.addAction("Add Multiple Points", self.ask_number_of_points)
+        insert_menu.addAction("Add Points Along Line", self.add_points_along_line)
+        insert_menu.addAction("Add Sensor", self.add_sensor)
+        insert_menu.addAction("Connect Selected Points", self.connect_points)
+        insert_menu.addAction("Generate Surface", self.generate_surface)
+
+        # ==== View Menu ====
+        view_menu = menubar.addMenu("View")
+        view_menu.addAction("Show Active Elements", self.toggle_active_panel)
+
+        # ==== Debug Menu ====
+        debug_menu = menubar.addMenu("Debug")
+        debug_menu.addAction("Test Select First Point", self.test_select_first_point)
+
+        # ==== Tools Menu ====
+        tools_menu = menubar.addMenu("Tools")
+        tools_menu.addAction("Start Vibration", self.start_vibration)
+
+        # === Left Panel: Control Inputs ===
         control_panel_widget = QWidget()
-        control_panel = QVBoxLayout(control_panel_widget)
-        splitter.addWidget(control_panel_widget)
-
-        # Plotter widget on the right
-        self.plotter = QtInteractor(self.frame)
-        self.plotter.enable_terrain_style()
-        self.plotter.add_axes(interactive=True)
-        splitter.addWidget(self.plotter.interactor)
+        control_layout = QVBoxLayout(control_panel_widget)
+        self.splitter.addWidget(control_panel_widget)
 
         # Coordinate input fields
         self.input_fields = [QLineEdit() for _ in range(3)]
         for i, field in enumerate(self.input_fields):
             field.setPlaceholderText(f"Coord {['X','Y','Z'][i]}")
-            control_panel.addWidget(field)
+            control_layout.addWidget(field)
 
-        # NEW input field for number of points to add (n)
         self.input_n = QLineEdit()
         self.input_n.setPlaceholderText("Number of points to add (n)")
-        control_panel.addWidget(self.input_n)
+        control_layout.addWidget(self.input_n)
 
-        # Buttons and their handlers including the new button
-        buttons = [
-            ("Open File", self.open_file_dialog),
-            ("Save", self.save),
-            ("Save As", self.save_as),
-            ("Add Point", self.add_point),
-            ("Connect Selected Points", self.connect_points),
-            ("Generate Surface", self.generate_surface),
-            ("Clear Selection", self.clear_selection),
-            ("Clear All", self.clear_all),
-            ("Test Select First Point", self.test_select_first_point),
-            ("Export to GLTF", self.export_to_gltf),
-            ("Add Points Along Line", self.add_points_along_line),  # NEW button added here
-            ("Add Multiple Points", self.ask_number_of_points),
-            ("Show Active Elements", self.show_active_elements_panel),  # <-- Add the button here!
-        ]
-
-        for label, handler in buttons:
-            btn = QPushButton(label)
-            btn.clicked.connect(handler)
-            control_panel.addWidget(btn)
-
-        # Vibration buttons
-        start_vibration_btn = QPushButton("Start Vibration")
-        start_vibration_btn.clicked.connect(self.start_vibration)
-        control_panel.addWidget(start_vibration_btn)
-
-        # Status label
+        # === Status Bar ===
         self.status = QLabel("Status: Ready")
-        control_panel.addWidget(self.status)
+        control_layout.addWidget(self.status)
+
+        # === Right Panel: PyVista plotter ===
+        self.plotter = QtInteractor(self.frame)
+        self.plotter.enable_terrain_style()
+        self.plotter.add_axes(interactive=True)
+        self.splitter.addWidget(self.plotter.interactor)
+
+        # === Dock widget for active elements ===
+        self.active_dock = QDockWidget("Active Elements", self)
+        self.active_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+
+        # This will hold your list widgets
+        self.active_panel = QWidget()
+        active_layout = QVBoxLayout(self.active_panel)
+
+        self.points_list = QListWidget()
+        self.lines_list = QListWidget()
+        self.surfaces_list = QListWidget()
+        self.sensors_list = QListWidget()
+
+        active_layout.addWidget(QLabel("Points"))
+        active_layout.addWidget(self.points_list)
+        active_layout.addWidget(QLabel("Lines"))
+        active_layout.addWidget(self.lines_list)
+        active_layout.addWidget(QLabel("Surfaces"))
+        active_layout.addWidget(self.surfaces_list)
+        active_layout.addWidget(QLabel("Sensors"))
+        active_layout.addWidget(self.sensors_list)
+
+        self.active_dock.setWidget(self.active_panel)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.active_dock)
+        self.active_dock.hide()  # Initially hidden
 
         # Enable point picking
         self.plotter.enable_point_picking(
@@ -167,6 +223,12 @@ class MainWindow(QMainWindow):
             tolerance=0.15,
             left_clicking=True
         )
+
+    def toggle_active_panel(self):
+        if self.active_dock.isVisible():
+            self.active_dock.hide()
+        else:
+            self.active_dock.show()
 
     
     def open_points_input_dialog(self, num_points):
@@ -181,18 +243,33 @@ class MainWindow(QMainWindow):
             self.update_plot()
             self.status.setText(f"Added {len(points)} points.")
 
+    def add_sensor(self):
+        try:
+            coords = [float(f.text()) for f in self.input_fields]
+            self.sensors.append(coords)
+
+            for f in self.input_fields:
+                f.clear()
+
+            self.status.setText(f"✅ Added Sensor at {coords}")
+            self.update_plot()
+
+        except ValueError:
+            self.status.setText("❌ Enter valid X, Y, Z coordinates")
+
 
     def show_active_elements_panel(self):
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QLabel
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Active Elements")
-        dialog.resize(400, 600)
+        dialog.resize(400, 700)
         layout = QVBoxLayout(dialog)
 
         points_list = QListWidget()
         lines_list = QListWidget()
         surfaces_list = QListWidget()
+        sensors_list = QListWidget()  # New: Sensor list widget
 
         layout.addWidget(QLabel("Points"))
         layout.addWidget(points_list)
@@ -200,7 +277,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(lines_list)
         layout.addWidget(QLabel("Surfaces"))
         layout.addWidget(surfaces_list)
+        layout.addWidget(QLabel("Sensors"))  # New: Sensor label
+        layout.addWidget(sensors_list)
 
+        # Populate all lists
         for idx, point in enumerate(self.points):
             points_list.addItem(f"Point {idx}: {point}")
 
@@ -210,11 +290,17 @@ class MainWindow(QMainWindow):
         for idx, surface in enumerate(self.surfaces_stores):
             surfaces_list.addItem(f"Surface {idx}: {len(surface)} points")
 
+        for idx, sensor in enumerate(self.sensors):  # New: Add sensors
+            sensors_list.addItem(f"Sensor {idx}: {sensor}")
+
+        # Optional: connect signals to highlight functions
         points_list.currentRowChanged.connect(self.highlight_point)
         lines_list.currentRowChanged.connect(self.highlight_line)
         surfaces_list.currentRowChanged.connect(self.highlight_surface)
+        sensors_list.currentRowChanged.connect(self.highlight_sensor)  # New
 
         dialog.exec_()
+
 
 
     def highlight_element_from_tree(self, item, column):
@@ -240,6 +326,18 @@ class MainWindow(QMainWindow):
             self.status.setText(f"🟡 Highlighted Surface {index} with {len(pts)} points")
 
         self.update_plot(redraw_surfaces=False)
+
+    def highlight_sensor(self, idx):
+        self.clear_highlights()
+        if idx < 0 or idx >= len(self.sensors):
+            return
+
+        # Simulate selection by tracking selected sensor index
+        self.selected_sensor = idx  # You need to define this in __init__
+
+        self.status.setText(f"Selected Sensor {idx}: {self.sensors[idx]}")
+        self.update_plot()  # Will trigger color update based on selected_sensor
+
 
     def ask_number_of_points(self):
         num, ok = QInputDialog.getInt(self, "Number of points", "Enter number of points:", min=1, max=100)
@@ -277,53 +375,46 @@ class MainWindow(QMainWindow):
 
 
     def show_active_elements_panel(self):
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QLabel, QHBoxLayout, QWidget
-
         dialog = QDialog(self)
         dialog.setWindowTitle("Active Elements")
-        dialog.resize(400, 600)
-
+        dialog.resize(400, 700)
         layout = QVBoxLayout(dialog)
 
-        # Create three list widgets
         points_list = QListWidget()
-        points_list.setSelectionMode(QListWidget.SingleSelection)
-        points_list.setToolTip("Active Points")
-
         lines_list = QListWidget()
-        lines_list.setSelectionMode(QListWidget.SingleSelection)
-        lines_list.setToolTip("Active Lines")
-
         surfaces_list = QListWidget()
-        surfaces_list.setSelectionMode(QListWidget.SingleSelection)
-        surfaces_list.setToolTip("Active Surfaces")
+        sensors_list = QListWidget()  # New: Sensor list widget
 
-        # Labels for sections
         layout.addWidget(QLabel("Points"))
         layout.addWidget(points_list)
         layout.addWidget(QLabel("Lines"))
         layout.addWidget(lines_list)
         layout.addWidget(QLabel("Surfaces"))
         layout.addWidget(surfaces_list)
+        layout.addWidget(QLabel("Sensors"))  # New: Sensor label
+        layout.addWidget(sensors_list)
 
-        # Populate points list
+        # Populate all lists
         for idx, point in enumerate(self.points):
             points_list.addItem(f"Point {idx}: {point}")
 
-        # Populate lines list (assuming self.edges is list of (p1_idx, p2_idx))
         for idx, edge in enumerate(self.edges):
             lines_list.addItem(f"Line {idx}: {edge}")
 
-        # Populate surfaces list (assuming self.surfaces_stores is list of lists of points)
         for idx, surface in enumerate(self.surfaces_stores):
             surfaces_list.addItem(f"Surface {idx}: {len(surface)} points")
 
-        # Connect signals to highlight on selection
-        points_list.currentRowChanged.connect(lambda i: self.highlight_point(i))
-        lines_list.currentRowChanged.connect(lambda i: self.highlight_line(i))
-        surfaces_list.currentRowChanged.connect(lambda i: self.highlight_surface(i))
+        for idx, sensor in enumerate(self.sensors):  # New: Add sensors
+            sensors_list.addItem(f"Sensor {idx}: {sensor}")
+
+        # Optional: connect signals to highlight functions
+        points_list.currentRowChanged.connect(self.highlight_point)
+        lines_list.currentRowChanged.connect(self.highlight_line)
+        surfaces_list.currentRowChanged.connect(self.highlight_surface)
+        sensors_list.currentRowChanged.connect(self.highlight_sensor)  # New
 
         dialog.exec_()
+
 
     def save_as(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save File", "", "JSON Files (*.json);;All Files (*)")
@@ -406,8 +497,9 @@ class MainWindow(QMainWindow):
     def update_plot(self, redraw_surfaces=True):
         """Refresh 3D scene, optionally skipping surface re-addition."""
 
-        # Remove old points mesh (don't reset camera yet)
+        # Remove old meshes
         self.plotter.remove_actor("points_mesh", reset_camera=False)
+        self.plotter.remove_actor("sensors_mesh", reset_camera=False)  # <--- REMOVE sensor actors
 
         # If no points, nothing to draw
         if not self.points:
@@ -429,6 +521,27 @@ class MainWindow(QMainWindow):
         ])
         mesh["colors"] = colors
 
+        # === Draw sensors (as regular points) ===
+        if self.sensors:
+            sensor_coords = np.array(self.sensors, dtype=np.float32)
+            sensor_mesh = pv.PolyData(sensor_coords)
+
+            sensor_colors = np.array([
+                [0, 0, 255] if i == getattr(self, "selected_sensor", -1) else [0, 255, 0]
+                for i in range(len(self.sensors))
+            ])
+            sensor_mesh["colors"] = sensor_colors
+
+            self.plotter.add_mesh(
+                sensor_mesh,
+                scalars="colors",
+                rgb=True,
+                name="sensor_mesh",
+                point_size=15,
+                render_points_as_spheres=True
+    )
+
+
         # Add points mesh to plotter
         self.plotter.add_mesh(
             mesh,
@@ -439,6 +552,17 @@ class MainWindow(QMainWindow):
             render_points_as_spheres=True,
             line_width=5
         )
+
+        # ✅ NEW: Plot sensors if any
+        if hasattr(self, "sensors") and self.sensors:
+            sensor_mesh = pv.PolyData(np.array(self.sensors, dtype=np.float32))
+            self.plotter.add_mesh(
+                sensor_mesh,
+                color="green",
+                point_size=15,
+                render_points_as_spheres=True,
+                name="sensors_mesh"
+            )
 
         # Optionally redraw surfaces if any (like generated mesh surfaces)
         if redraw_surfaces and hasattr(self, "surfaces"):
@@ -451,16 +575,22 @@ class MainWindow(QMainWindow):
                     show_edges=True
                 )
 
-        # Reset camera to include all points, but could be modified
+        # Reset camera to include all points
         self.plotter.reset_camera()
 
+
     def clear_highlights(self):
-        # Remove highlight actors, ignore errors if not present
-        for name in ['highlight_point', 'highlight_line', 'highlight_surface']:
+        # Clear selections
+        self.selected_points.clear()
+        self.selected_sensor = -1  # Deselect any highlighted sensor
+
+        # Remove highlight actors
+        for name in ['highlight_point', 'highlight_line', 'highlight_surface', 'highlight_sensor']:
             try:
                 self.plotter.remove_actor(name)
             except Exception:
                 pass
+
 
     def highlight_point(self, idx):
         self.clear_highlights()
@@ -695,6 +825,11 @@ class MainWindow(QMainWindow):
         self.points.clear()
         self.edges.clear()
         self.selected_points.clear()
+        self.surfaces.clear()
+        self.surfaces_stores.clear()
+        self.plotter.clear()
+        self.plotter.reset_camera()
+        self.loaded_mesh = None
         self.status.setText("All cleared")
         self.update_plot()
 
