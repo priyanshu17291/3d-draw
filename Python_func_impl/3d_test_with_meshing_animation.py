@@ -104,6 +104,7 @@ class MainWindow(QMainWindow):
 
         # Add sample points
         self.points = [[0, 0, 0], [1, 0, 0], [0, 1, 0]]
+        self.update_active_elements_panel()
         self.update_plot()
         self.surface_mesh = None  # Store the surface
         self.surface_actor = None
@@ -220,7 +221,7 @@ class MainWindow(QMainWindow):
             callback=self.pick_point,
             use_mesh=False,
             show_point=False,
-            tolerance=0.15,
+            tolerance=0.05,
             left_clicking=True
         )
 
@@ -240,6 +241,7 @@ class MainWindow(QMainWindow):
                 return
             # Add points to your structure
             self.points.extend(points)
+            self.update_active_elements_panel()
             self.update_plot()
             self.status.setText(f"Added {len(points)} points.")
 
@@ -252,6 +254,7 @@ class MainWindow(QMainWindow):
                 f.clear()
 
             self.status.setText(f"✅ Added Sensor at {coords}")
+            self.update_active_elements_panel()
             self.update_plot()
 
         except ValueError:
@@ -338,6 +341,30 @@ class MainWindow(QMainWindow):
         self.status.setText(f"Selected Sensor {idx}: {self.sensors[idx]}")
         self.update_plot()  # Will trigger color update based on selected_sensor
 
+    
+    def update_active_elements_panel(self):
+        """Update all lists in the dock widget with current data"""
+        self.points_list.clear()
+        self.lines_list.clear()
+        self.surfaces_list.clear()
+        self.sensors_list.clear()
+
+        # Populate points list
+        for idx, point in enumerate(self.points):
+            self.points_list.addItem(f"Point {idx}: {point}")
+
+        # Populate lines list
+        for idx, edge in enumerate(self.edges):
+            p1, p2 = edge
+            self.lines_list.addItem(f"Line {idx}: {p1} → {p2}")
+
+        # Populate surfaces list
+        for idx, surface in enumerate(self.surfaces_stores):
+            self.surfaces_list.addItem(f"Surface {idx}: {len(surface)} points")
+
+        # Populate sensors list
+        for idx, sensor in enumerate(self.sensors):
+            self.sensors_list.addItem(f"Sensor {idx}: {sensor}")
 
     def ask_number_of_points(self):
         num, ok = QInputDialog.getInt(self, "Number of points", "Enter number of points:", min=1, max=100)
@@ -349,15 +376,20 @@ class MainWindow(QMainWindow):
             file_path += '.json'
 
         try:
+            # Ensure all elements are native Python types
+            points = [list(map(float, point)) for point in self.points]
+            edges = [list(map(int, edge)) for edge in self.edges]
             surfaces = [
                 [[int(coord) for coord in point] for point in surface]
                 for surface in self.surfaces_stores
             ]
+            sensors = [list(map(float, sensor)) for sensor in self.sensors]
 
             structure_data = {
-                "points": self.points,
-                "edges": self.edges,
+                "points": points,
+                "edges": edges,
                 "surfaces": surfaces,
+                "sensors": sensors,
                 "meta": {
                     "created_by": "Dhruv",
                     "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -372,48 +404,6 @@ class MainWindow(QMainWindow):
             self.status.setText(f"Saved to {file_path}")
         except Exception as e:
             self.status.setText(f"Failed to save: {e}")
-
-
-    def show_active_elements_panel(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Active Elements")
-        dialog.resize(400, 700)
-        layout = QVBoxLayout(dialog)
-
-        points_list = QListWidget()
-        lines_list = QListWidget()
-        surfaces_list = QListWidget()
-        sensors_list = QListWidget()  # New: Sensor list widget
-
-        layout.addWidget(QLabel("Points"))
-        layout.addWidget(points_list)
-        layout.addWidget(QLabel("Lines"))
-        layout.addWidget(lines_list)
-        layout.addWidget(QLabel("Surfaces"))
-        layout.addWidget(surfaces_list)
-        layout.addWidget(QLabel("Sensors"))  # New: Sensor label
-        layout.addWidget(sensors_list)
-
-        # Populate all lists
-        for idx, point in enumerate(self.points):
-            points_list.addItem(f"Point {idx}: {point}")
-
-        for idx, edge in enumerate(self.edges):
-            lines_list.addItem(f"Line {idx}: {edge}")
-
-        for idx, surface in enumerate(self.surfaces_stores):
-            surfaces_list.addItem(f"Surface {idx}: {len(surface)} points")
-
-        for idx, sensor in enumerate(self.sensors):  # New: Add sensors
-            sensors_list.addItem(f"Sensor {idx}: {sensor}")
-
-        # Optional: connect signals to highlight functions
-        points_list.currentRowChanged.connect(self.highlight_point)
-        lines_list.currentRowChanged.connect(self.highlight_line)
-        surfaces_list.currentRowChanged.connect(self.highlight_surface)
-        sensors_list.currentRowChanged.connect(self.highlight_sensor)  # New
-
-        dialog.exec_()
 
 
     def save_as(self):
@@ -450,7 +440,8 @@ class MainWindow(QMainWindow):
             # For each stored surface (array of points), generate surface mesh
             for surface_points in data.get("surfaces", []):
                 self.generate_surface_from_points(surface_points)
-
+            
+            self.update_active_elements_panel()
             self.update_plot()
 
             self.status.setText(f"Loaded structure from JSON: {file_path}")
@@ -466,6 +457,7 @@ class MainWindow(QMainWindow):
         surface = surface.subdivide(nsub=3, subfilter="linear")
         surface = surface.smooth(n_iter=100, relaxation_factor=0.1)
         self.surfaces.append(surface)
+        self.update_active_elements_panel()
 
         self.plotter.add_mesh(
             surface,
@@ -799,6 +791,7 @@ class MainWindow(QMainWindow):
             for f in self.input_fields:
                 f.clear()
             self.status.setText(f"✅ Added {coords}")
+            self.update_active_elements_panel()
             self.update_plot()
         except ValueError:
             self.status.setText("❌ Enter valid X, Y, Z coordinates")
@@ -814,6 +807,7 @@ class MainWindow(QMainWindow):
         self.edges.append(edge)
         self.status.setText(f"✅ Connected: {edge}")
         self.selected_points.clear()
+        self.update_active_elements_panel()
         self.update_plot()
 
     def clear_selection(self):
@@ -831,6 +825,7 @@ class MainWindow(QMainWindow):
         self.plotter.reset_camera()
         self.loaded_mesh = None
         self.status.setText("All cleared")
+        self.update_active_elements_panel()
         self.update_plot()
 
     def test_select_first_point(self):
@@ -883,6 +878,7 @@ class MainWindow(QMainWindow):
         # Add n points along the line
         self.extend_points_along_line(pts, n)
         self.status.setText(f"✅ Added {n} points along the line.")
+        self.update_active_elements_panel()
         self.update_plot()
 
     def are_points_collinear(self, pts):
