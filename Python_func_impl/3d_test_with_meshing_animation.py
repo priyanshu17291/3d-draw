@@ -22,7 +22,8 @@ from PyQt5.QtWidgets import (
     QTabWidget, QDockWidget, QMenuBar, QMenu, QAction
 )
 
-
+#kriging or gaussian process regression can be used for surface generation
+#finite element based shape function interpolation 
 
 class Sensor:
     def __init__(self, sensor_id, location, sensor_type=None, status="active"):
@@ -98,6 +99,7 @@ class MainWindow(QMainWindow):
         self.surfaces = []  # List to store all created surface meshes
         self.surfaces_stores = []  # Store original surface points for animation
         self.sensors = []  # List to store Sensor objects
+        self.selected_sensor = -1  # Index of currently selected sensor
 
         # UI and 3D setup
         self.init_ui()
@@ -218,7 +220,7 @@ class MainWindow(QMainWindow):
 
         # Enable point picking
         self.plotter.enable_point_picking(
-            callback=self.pick_point,
+            callback=self.handle_pick,
             use_mesh=False,
             show_point=False,
             tolerance=0.05,
@@ -334,9 +336,6 @@ class MainWindow(QMainWindow):
         self.clear_highlights()
         if idx < 0 or idx >= len(self.sensors):
             return
-
-        # Simulate selection by tracking selected sensor index
-        self.selected_sensor = idx  # You need to define this in __init__
 
         self.status.setText(f"Selected Sensor {idx}: {self.sensors[idx]}")
         self.update_plot()  # Will trigger color update based on selected_sensor
@@ -519,7 +518,7 @@ class MainWindow(QMainWindow):
             sensor_mesh = pv.PolyData(sensor_coords)
 
             sensor_colors = np.array([
-                [0, 0, 255] if i == getattr(self, "selected_sensor", -1) else [0, 255, 0]
+                [255, 255, 0] if i == self.selected_sensor else [0, 255, 0]
                 for i in range(len(self.sensors))
             ])
             sensor_mesh["colors"] = sensor_colors
@@ -544,17 +543,6 @@ class MainWindow(QMainWindow):
             render_points_as_spheres=True,
             line_width=5
         )
-
-        # ✅ NEW: Plot sensors if any
-        if hasattr(self, "sensors") and self.sensors:
-            sensor_mesh = pv.PolyData(np.array(self.sensors, dtype=np.float32))
-            self.plotter.add_mesh(
-                sensor_mesh,
-                color="green",
-                point_size=15,
-                render_points_as_spheres=True,
-                name="sensors_mesh"
-            )
 
         # Optionally redraw surfaces if any (like generated mesh surfaces)
         if redraw_surfaces and hasattr(self, "surfaces"):
@@ -774,6 +762,32 @@ class MainWindow(QMainWindow):
             self.status.setText(f"Selected point {nearest}")
 
         self.update_plot()
+    
+    def handle_pick(self, picked):
+        if self.pick_sensor(picked):
+            return
+        self.pick_point(picked)  # Only called if sensor pick fails
+
+
+    def pick_sensor(self, picked):
+        if not self.sensors:
+            return False  # Nothing to pick
+
+        pts = np.array(self.sensors, dtype=np.float32)
+        dists = np.linalg.norm(pts - picked, axis=1)
+        nearest_index = np.argmin(dists)
+
+        if dists[nearest_index] > self.selection_threshold():
+            return False  # Too far from any sensor
+
+        # Set selected sensor to the nearest one found
+        self.selected_sensor = nearest_index
+
+        self.status.setText(f"📡 Selected sensor {nearest_index}")
+        self.update_plot()
+        return True
+
+
 
     def selection_threshold(self):
         if len(self.points) < 2:
@@ -812,6 +826,7 @@ class MainWindow(QMainWindow):
 
     def clear_selection(self):
         self.selected_points.clear()
+        self.selected_sensor = -1  # Deselect any highlighted sensor
         self.status.setText("Selection cleared")
         self.update_plot()
 
